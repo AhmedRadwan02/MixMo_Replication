@@ -266,6 +266,118 @@ show_images(mixed_images, "CutMix Images")
 print("Mixed Labels (One-Hot):", mixed_labels)
 ```
 
+## Using WideResNet and PreActResNet with Feature-Level Augmentation
+
+The repository provides implementations of WideResNet28 and PreActResNet18 with feature-level augmentation support.
+
+### Creating and Using WideResNet28
+
+```python
+from models.wide_resnet import Wide_ResNet28
+import torch
+
+# Create a WideResNet28 model with CutMixMo augmentation
+model = Wide_ResNet28(
+    widen_factor=10,           # Controls network width
+    dropout_rate=0.3,          # Dropout rate for regularization
+    num_classes=10,            # Number of output classes (e.g., for CIFAR-10)
+    augmentation_type='CutMixMo'  # Options: 'none', 'LinearMixMo', 'CutMixMo'
+)
+
+# Example forward pass with two input batches
+batch_size = 32
+x1 = torch.randn(batch_size, 3, 32, 32)  # First input batch
+x2 = torch.randn(batch_size, 3, 32, 32)  # Second input batch
+
+# Forward pass with feature augmentation
+out1, out2, out_mix1, out_mix2, kappa = model(x1, x2)
+
+# Use the outputs in your loss function
+# out1, out2: Original outputs from each branch
+# out_mix1, out_mix2: Outputs from mixed features
+# kappa: Mixing coefficients (useful for some loss functions)
+```
+
+### Creating and Using PreActResNet18
+
+```python
+from models.preact_resnet import PreActResNet18
+import torch
+
+# Create a PreActResNet18 model with LinearMixMo augmentation
+model = PreActResNet18(
+    widen_factor=2,               # Controls network width
+    num_classes=10,               # Number of output classes
+    augmentation_type='LinearMixMo'  # Options: 'none', 'LinearMixMo', 'CutMixMo'
+)
+
+# Example forward pass
+batch_size = 32
+x1 = torch.randn(batch_size, 3, 32, 32)
+x2 = torch.randn(batch_size, 3, 32, 32)
+
+# Forward pass with feature augmentation
+out1, out2, out_mix1, out_mix2, lam = model(x1, x2)
+
+# lam is the mixing coefficient for LinearMixMo
+```
+
+### Training a MixMo Model
+
+When training with MixMo augmentation, you'll need to handle the dual inputs and multiple outputs:
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from data_handler import DataHandler
+from models.wide_resnet import Wide_ResNet28
+
+# Create model
+model = Wide_ResNet28(widen_factor=10, dropout_rate=0.3, num_classes=10, 
+                     augmentation_type='CutMixMo')
+
+# Setup optimizer
+optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+criterion = nn.CrossEntropyLoss()
+
+# Get data with batch repetition (each unique sample appears twice in a batch)
+data_handler = DataHandler(data_root='./data')
+train_loader, _ = data_handler.get_cifar10(batch_size=128, batch_repetitions=2)
+
+# Training loop
+model.train()
+for inputs, targets in train_loader:
+    # Reshape the inputs and targets to separate the batch repetitions
+    batch_size = inputs.size(0) // 2
+    x1, x2 = inputs[:batch_size], inputs[batch_size:]
+    y1, y2 = targets[:batch_size], targets[batch_size:]
+    
+    # Zero the parameter gradients
+    optimizer.zero_grad()
+    
+    # Forward pass
+    out1, out2, out_mix1, out_mix2, kappa = model(x1, x2)
+    
+    # Calculate loss
+    # 1. Original outputs loss
+    loss1 = criterion(out1, y1)
+    loss2 = criterion(out2, y2)
+    
+    # 2. Mixed outputs loss
+    loss_mix1 = criterion(out_mix1, y1)
+    loss_mix2 = criterion(out_mix2, y2)
+    
+    # Combine losses
+    loss = loss1 + loss2 + loss_mix1 + loss_mix2
+    
+    # Backward pass and optimize
+    loss.backward()
+    optimizer.step()
+
+```
+
+
 ## References
 
 - [CutMix: Regularization Strategy to Train Strong Classifiers with Localizable Features](https://arxiv.org/abs/1905.04899)
