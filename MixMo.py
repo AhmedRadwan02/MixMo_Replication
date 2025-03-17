@@ -71,3 +71,25 @@ def cut_mixmo(l0, l1, alpha=2.0):
     mixed_features = 2 * (binary_mask * l0 + (1 - binary_mask) * l1)
     
     return mixed_features, kappa, masks
+
+
+    
+def linear_mixmo(self, l0: torch.Tensor, l1: torch.Tensor, lam: torch.Tensor) -> torch.Tensor:
+    """
+    Mix features using linear interpolation.
+    
+    Formula: MLinear-MixMo (l0, l1) = 2[λl0 + (1-λ)l1]
+    
+    Args:
+        l0: Features from first encoder
+        l1: Features from second encoder
+        lam: Mixing ratios
+        
+    Returns:
+        Mixed features
+    """
+    # Apply linear mixing (MLinear-MixMo)
+    # Formula: MLinear-MixMo (l0, l1) = 2[λl0 + (1-λ)l1]
+    mixed_features = 2 * (lam * l0 + (1 - lam) * l1)
+    
+    return mixed_features
