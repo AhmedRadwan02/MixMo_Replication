@@ -9,8 +9,28 @@ from torchvision.transforms.functional import InterpolationMode
 from PIL import Image
 import random
 from datasets import load_dataset
+os.system("pip install -q kagglehub")
+import kagglehub
 
-
+class CIFAR100CDataset(Dataset):
+    def __init__(self, images, labels, transform=None):
+        self.images = images
+        self.labels = labels
+        self.transform = transform
+    
+    def __getitem__(self, index):
+        img = self.images[index]
+        # Images are already in (H, W, C) format, no need to transpose
+        img = Image.fromarray(img.astype(np.uint8))
+        
+        if self.transform:
+            img = self.transform(img)
+        
+        return img, self.labels[index]
+    
+    def __len__(self):
+        return len(self.images)
+    
 class DataHandler:
     """
     Data handling class for loading and preprocessing datasets for MixMo experiments.
@@ -18,6 +38,7 @@ class DataHandler:
     Handles:
     - CIFAR-10/100 loading
     - TinyImageNet loading
+    - CIFAR-100-C loading (corrupted test data)
     - Augmentation pipeline (standard, CutMix, AugMix)
     - Batch repetition (for b=2, 4 experiments)
     """
@@ -101,6 +122,63 @@ class DataHandler:
             root=self.data_root, train=False, download=True, transform=test_transform)
         
         return self._create_data_loaders(train_dataset, test_dataset, batch_size, batch_repetitions)
+    
+    def get_cifar100c(self, corruption_type, batch_size=128, data_path=None, severity=3):
+        """
+        Load CIFAR-100-C test dataset with specific corruption type and severity level.
+        
+        Args:
+            corruption_type: str, name of corruption (e.g., 'gaussian_noise', 'frost', etc.)
+            batch_size: int, batch size for the dataloader
+            data_path: str, path to CIFAR-100-C directory, if None will download from Kaggle
+            severity: int, severity level (1-5), default is 3
+        
+        Returns:
+            test_loader for corrupted test data
+        """
+        # Download from Kaggle if path not provided
+        if data_path is None:
+            data_path = kagglehub.dataset_download("ahmedyradwan02/cifar100-c")
+            data_path = os.path.join(data_path, "CIFAR-100-C")
+            print(f"Downloaded CIFAR-100-C to {data_path}")
+        
+        # Check if corruption type is valid (by checking if file exists)
+        corruption_file = os.path.join(data_path, f"{corruption_type}.npy")
+        if not os.path.exists(corruption_file):
+            raise ValueError(f"Corruption file {corruption_file} does not exist.")
+        
+        # Load corrupted images
+        corrupted_data = np.load(corruption_file)
+        
+        # Calculate indices for the specified severity level
+        # Each severity level has 10,000 images
+        # Severity 1: 0-9999, Severity 2: 10000-19999, ..., Severity 5: 40000-49999
+        start_idx = (severity - 1) * 10000
+        end_idx = start_idx + 10000
+        
+        # Extract images for the specified severity level
+        corrupted_images = corrupted_data[start_idx:end_idx]
+        
+        # Load labels (same for all corruptions)
+        labels_file = os.path.join(data_path, "labels.npy")
+        if os.path.exists(labels_file):
+            # Labels are the same for all severity levels, so we take the first 10000
+            labels = np.load(labels_file)[:10000]
+        else:
+            raise ValueError(f"Labels file not found at {labels_file}")
+        
+        # Create dataset from numpy arrays
+        test_transform = self._get_test_transform(
+            mean=self.CIFAR100_MEAN,
+            std=self.CIFAR100_STD
+        )
+        
+        # Create the dataset and dataloader
+        test_dataset = CIFAR100CDataset(corrupted_images, labels, transform=test_transform)
+        test_loader = DataLoader(
+            test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+        
+        return test_loader
     
     def get_tiny_imagenet(self, batch_size=128, batch_repetitions=1):
         """
@@ -303,7 +381,6 @@ class DataHandler:
             transforms.Normalize(mean, std)
         ])
     
-
     def _create_data_loaders(self, train_dataset, test_dataset, batch_size, batch_repetitions):
         """Create data loaders with optional batch repetition."""
         if batch_repetitions > 1:
@@ -358,7 +435,6 @@ class DataHandler:
         
         return loader
 
-
 class RepeatedSampler(Sampler):
     """
     Sampler that generates indices for batch repetition as described in the MixMo paper.
@@ -385,8 +461,6 @@ class RepeatedSampler(Sampler):
     
     def __len__(self):
         return self.num_samples * self.repetitions
-
-
 
 class TinyImageNetDataset(Dataset):
     """

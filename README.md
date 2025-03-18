@@ -29,6 +29,21 @@ train_loader, test_loader = data_handler.get_cifar100(batch_size=128)
 
 # Load TinyImageNet with standard augmentations
 train_loader, val_loader = data_handler.get_tiny_imagenet(batch_size=128)
+
+#Load CIFAR-100-C for robustness test
+available_corruptions = [
+    'brightness', 'contrast', 'defocus_blur', 'elastic_transform',
+    'fog', 'frost', 'gaussian_blur', 'gaussian_noise', 'glass_blur',
+    'impulse_noise', 'jpeg_compression', 'motion_blur', 'pixelate',
+    'saturate', 'shot_noise', 'snow', 'spatter', 'speckle_noise', 'zoom_blur'
+]
+
+corruption_name = "gaussian_noise"
+cifar100c_loader = data_handler.get_cifar100c(
+    corruption_type=corruption_name,
+    batch_size=128,
+    severity=3  # Default is already 3, but specified for clarity
+)
 ```
 
 ### Using CutMix
