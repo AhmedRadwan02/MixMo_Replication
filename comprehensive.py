@@ -8,7 +8,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Dict, List, Tuple, Optional, Union, Callable
 
-from mixmo_base import MixMoBase  # Ensure mixmo_base.py is in your PYTHONPATH or same directory
 
 #####################################
 # MixMo Trainer Class
@@ -22,7 +21,7 @@ class MixMoTrainer:
     
     def __init__(
         self,
-        model: MixMoBase,
+        model,
         optimizer: torch.optim.Optimizer,
         scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         device: torch.device = None,

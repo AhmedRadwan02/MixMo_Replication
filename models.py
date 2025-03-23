@@ -103,8 +103,22 @@ class Wide_ResNet_Dual(nn.Module):
         # Store augmentation type
         self.augmentation_type = augmentation_type
     
-    def forward(self, x1, x2):
-        """Forward pass through the network with two separate inputs"""
+    def set_mixing_mode(self, mode):
+        """Set the mixing mode to be used in forward pass
+        Args:
+            mode: str, either 'patch' or 'linear'
+        """
+        self.mixing_mode = mode
+    
+    def forward(self, x1, x2=None):
+        """Forward pass through the network with two separate inputs
+        
+        In inference mode, x2 can be None, in which case x1 is used for both branches
+        """
+        # Handle inference case (when x2 is None)
+        if x2 is None:
+            x2 = x1
+        
         # Extract features using the two encoders
         features1 = self.encoder1.get_embedding(x1)
         features2 = self.encoder2.get_embedding(x2)
@@ -116,17 +130,31 @@ class Wide_ResNet_Dual(nn.Module):
         # Apply feature augmentation based on the specified type
         if self.augmentation_type.lower() == 'linearmixmo':
             # Linear interpolation between feature maps
-            alpha = 0.2  # This could be a parameter
+            alpha = 2.0  # As per MixMo paper
             lam = np.random.beta(alpha, alpha)
             # 2.0 multiplication as per MixMo paper
-            mixed_features = linear_mixmo(features1,features2,lam)
+            mixed_features = linear_mixmo(features1, features2, lam)
             out_mix1 = self.classifier1(mixed_features)
             out_mix2 = self.classifier2(mixed_features)
             return out1, out2, out_mix1, out_mix2, torch.tensor(lam)
             
         elif self.augmentation_type.lower() == 'cutmixmo':
-            # Apply CutMixMo on the feature maps
-            mixed_features, kappa = cut_mixmo(features1, features2, alpha=2.0)
+            # Check if we should use patch mixing or linear mixing
+            # Default to patch mixing if mixing_mode is not set
+            use_patch_mixing = True
+            if hasattr(self, 'mixing_mode'):
+                use_patch_mixing = (self.mixing_mode == 'patch')
+            
+            if use_patch_mixing:
+                # Apply CutMixMo on the feature maps (patch mixing)
+                mixed_features, kappa = cut_mixmo(features1, features2, alpha=2.0)
+            else:
+                # Use linear mixing instead (accommodate for inference mode)
+                alpha = 2.0
+                lam = np.random.beta(alpha, alpha)
+                mixed_features = linear_mixmo(features1, features2, lam)
+                kappa = torch.tensor(lam)
+            
             out_mix1 = self.classifier1(mixed_features)
             out_mix2 = self.classifier2(mixed_features)
             return out1, out2, out_mix1, out_mix2, kappa
@@ -239,8 +267,15 @@ class PreActResNet_Dual(nn.Module):
         # Store augmentation type
         self.augmentation_type = augmentation_type
     
-    def forward(self, x1, x2):
-        """Forward pass through the network with two separate inputs"""
+    def forward(self, x1, x2=None):
+        """Forward pass through the network with two separate inputs
+        
+        In inference mode, x2 can be None, in which case x1 is used for both branches
+        """
+        # Handle inference case (when x2 is None)
+        if x2 is None:
+            x2 = x1
+        
         # Extract features using the two encoders
         features1 = self.encoder1.get_embedding(x1)
         features2 = self.encoder2.get_embedding(x2)
@@ -252,17 +287,31 @@ class PreActResNet_Dual(nn.Module):
         # Apply feature augmentation based on the specified type
         if self.augmentation_type.lower() == 'linearmixmo':
             # Linear interpolation between feature maps
-            alpha = 0.2  # This could be a parameter
+            alpha = 2.0  # As per MixMo paper
             lam = np.random.beta(alpha, alpha)
             # 2.0 multiplication as per MixMo paper
-            mixed_features = linear_mixmo(features1,features2,lam)
+            mixed_features = linear_mixmo(features1, features2, lam)
             out_mix1 = self.classifier1(mixed_features)
             out_mix2 = self.classifier2(mixed_features)
             return out1, out2, out_mix1, out_mix2, torch.tensor(lam)
             
         elif self.augmentation_type.lower() == 'cutmixmo':
-            # Apply CutMixMo on the feature maps
-            mixed_features, kappa = cut_mixmo(features1, features2, alpha=2.0)
+            # Check if we should use patch mixing or linear mixing
+            # Default to patch mixing if mixing_mode is not set
+            use_patch_mixing = True
+            if hasattr(self, 'mixing_mode'):
+                use_patch_mixing = (self.mixing_mode == 'patch')
+            
+            if use_patch_mixing:
+                # Apply CutMixMo on the feature maps (patch mixing)
+                mixed_features, kappa = cut_mixmo(features1, features2, alpha=2.0)
+            else:
+                # Use linear mixing instead (accommodate for inference mode)
+                alpha = 2.0
+                lam = np.random.beta(alpha, alpha)
+                mixed_features = linear_mixmo(features1, features2, lam)
+                kappa = torch.tensor(lam)
+            
             out_mix1 = self.classifier1(mixed_features)
             out_mix2 = self.classifier2(mixed_features)
             return out1, out2, out_mix1, out_mix2, kappa
