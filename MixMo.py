@@ -74,7 +74,7 @@ def cut_mixmo(l0, l1, alpha=2.0):
 
 
     
-def linear_mixmo(self, l0: torch.Tensor, l1: torch.Tensor, lam: torch.Tensor) -> torch.Tensor:
+def linear_mixmo(self, l0: torch.Tensor, l1: torch.Tensor, lam: torch.Tensor = torch.tensor(0.5)) -> torch.Tensor:
     """
     Mix features using linear interpolation.
     

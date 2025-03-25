@@ -80,6 +80,117 @@ def mixmo_loss(outputs, targets, kappa=None, r=3.0):
     
     return loss1 + loss2
 
+class TemperatureScaling(nn.Module):
+    """
+    A module to perform temperature scaling for model calibration.
+    """
+    def __init__(self):
+        super(TemperatureScaling, self).__init__()
+        self.temperature = nn.Parameter(torch.ones(1) * 1.0)
+        
+    def forward(self, logits):
+        """
+        Scale the logits by the temperature parameter
+        """
+        return logits / self.temperature
+
+def optimize_temperature(model, val_loader, device, args, ensemble_models=None):
+    """
+    Find the optimal temperature for calibration
+    """
+    # Set up temperature scaling model
+    temperature_model = TemperatureScaling().to(device)
+    
+    # Set up NLL loss
+    nll_criterion = nn.CrossEntropyLoss()
+    
+    # Optimizer for temperature parameter
+    optimizer = optim.LBFGS([temperature_model.temperature], lr=0.01, max_iter=50)
+    
+    # Collect all logits and labels from validation set
+    logits_list = []
+    labels_list = []
+    
+    with torch.no_grad():
+        if ensemble_models is not None:
+            # Deep Ensemble evaluation
+            for model in ensemble_models:
+                model.eval()
+                
+            for inputs, targets in tqdm(val_loader, desc="Collecting logits for calibration"):
+                inputs, targets = inputs.to(device), targets.to(device)
+                
+                # Aggregate predictions
+                ensemble_logits = None
+                for model in ensemble_models:
+                    out1, out2 = model(inputs)
+                    batch_logits = 0.5 * (out1 + out2)  # average of the two outputs
+            
+                    if ensemble_logits is None:
+                        ensemble_logits = batch_logits
+                    else:
+                        ensemble_logits += batch_logits
+                
+                ensemble_logits /= len(ensemble_models)
+                logits_list.append(ensemble_logits)
+                labels_list.append(targets)
+        else:
+            # Single model evaluation
+            model.eval()
+            
+            if args.approach in ['vanilla', 'mixup', 'cutmix']:
+                for inputs, targets in tqdm(val_loader, desc="Collecting logits for calibration"):
+                    inputs, targets = inputs.to(device), targets.to(device)
+                    
+                    out1, out2 = model(inputs)
+                    outputs = 0.5 * (out1 + out2)
+                    logits_list.append(outputs)
+                    labels_list.append(targets)
+            
+            elif args.approach in ['mimo', 'linear_mixmo', 'linear_mixmo_cutmix', 'cut_mixmo', 'cut_mixmo_cutmix']:
+                for inputs, targets in tqdm(val_loader, desc="Collecting logits for calibration"):
+                    inputs, targets = inputs.to(device), targets.to(device)
+                    
+                    # For inference, use the same input for both branches
+                    out1, out2, _, _, _ = model(inputs, inputs)
+                    
+                    # Ensemble prediction (average of both outputs)
+                    ensemble_output = (out1 + out2) / 2
+                    logits_list.append(ensemble_output)
+                    labels_list.append(targets)
+    
+    # Concatenate all logits and labels
+    logits = torch.cat(logits_list, dim=0)
+    labels = torch.cat(labels_list, dim=0)
+    
+    # Define the optimization step
+    def eval():
+        optimizer.zero_grad()
+        scaled_logits = temperature_model(logits)
+        loss = nll_criterion(scaled_logits, labels)
+        loss.backward()
+        return loss
+    
+    # Optimize temperature
+    optimizer.step(eval)
+    
+    return temperature_model.temperature.item()
+
+def calculate_nll(logits, targets):
+    """
+    Calculate the negative log-likelihood (NLL)
+    """
+    # Apply softmax to convert logits to probabilities
+    probs = torch.nn.functional.softmax(logits, dim=1)
+    
+    # Get the probability of the correct class for each sample
+    correct_probs = probs.gather(1, targets.unsqueeze(1)).squeeze()
+    
+    # Calculate the negative log likelihood
+    nll = -torch.log(correct_probs)
+    
+    return nll.mean().item()
+
 def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epochs=None):
     """Unified training function for all approaches"""
     model.train()
@@ -96,7 +207,7 @@ def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epo
             progress = (epoch - decay_start) / (total_epochs - decay_start)
             mixing_prob = 0.5 * (1 - progress)
     
-    if args.approach in ['vanilla', 'mixup', 'cutmix']:
+    if args.approach in ['vanilla', 'mixup', 'cutmix','de', 'de_cutmix']:
         # Standard training
         criterion = nn.CrossEntropyLoss()
         correct = 0
@@ -106,7 +217,8 @@ def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epo
             inputs, targets = inputs.to(device), targets.to(device)
             
             optimizer.zero_grad()
-            outputs , _ = model(inputs)
+            out1, out2 = model(inputs)
+            outputs = 0.5 * (out1 + out2)  # Average the two outputs
             
             # For one-hot encoded targets (CutMix/Mixup)
             if len(targets.shape) > 1:
@@ -187,8 +299,8 @@ def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epo
     
     return None, None, None, None
 
-def evaluate(model, loader, device, args, ensemble_models=None):
-    """Evaluation function for all approaches"""
+def evaluate(model, test_loader, device, args, ensemble_models=None, calculate_metrics=True, optimal_temp=None):
+    """Evaluation function for all approaches with NLLc calculation"""
     if ensemble_models is not None:
         # Deep Ensemble evaluation
         for model in ensemble_models:
@@ -197,21 +309,30 @@ def evaluate(model, loader, device, args, ensemble_models=None):
         correct = 0
         correct_top5 = 0
         total = 0
+        all_logits = []
+        all_targets = []
         
         with torch.no_grad():
-            for inputs, targets in tqdm(loader, desc="Evaluating Ensemble"):
+            for inputs, targets in tqdm(test_loader, desc="Evaluating Ensemble"):
                 inputs, targets = inputs.to(device), targets.to(device)
                 
                 # Aggregate predictions
                 outputs = None
                 for model in ensemble_models:
-                    batch_output = model(inputs)
+                    out1, out2 = model(inputs)
+                    batch_output = 0.5 * (out1 + out2)  # average of the two outputs
+        
                     if outputs is None:
                         outputs = batch_output
                     else:
                         outputs += batch_output
                 
                 outputs /= len(ensemble_models)
+                
+                # Save logits and targets for NLL calculation
+                if calculate_metrics:
+                    all_logits.append(outputs.detach().cpu())
+                    all_targets.append(targets.detach().cpu())
                 
                 # Top-1 accuracy
                 _, predicted = outputs.max(1)
@@ -225,7 +346,22 @@ def evaluate(model, loader, device, args, ensemble_models=None):
                 
                 total += targets.size(0)
         
-        return 100. * correct / total, 100. * correct_top5 / total, None, None
+        acc = 100. * correct / total
+        acc_top5 = 100. * correct_top5 / total
+        
+        # Calculate NLLc if needed
+        nllc = None
+        if calculate_metrics and optimal_temp is not None:
+            all_logits = torch.cat(all_logits)
+            all_targets = torch.cat(all_targets)
+            
+            # Apply temperature scaling
+            scaled_logits = all_logits / optimal_temp
+            
+            # Calculate NLLc
+            nllc = calculate_nll(scaled_logits, all_targets)
+            
+        return acc, acc_top5, None, None, nllc
     
     else:
         # Single model evaluation
@@ -236,12 +372,20 @@ def evaluate(model, loader, device, args, ensemble_models=None):
             correct = 0
             correct_top5 = 0
             total = 0
+            all_logits = []
+            all_targets = []
             
             with torch.no_grad():
-                for inputs, targets in tqdm(loader, desc="Evaluating"):
+                for inputs, targets in tqdm(test_loader, desc="Evaluating"):
                     inputs, targets = inputs.to(device), targets.to(device)
                     
-                    outputs , _ = model(inputs)
+                    out1, out2 = model(inputs)
+                    outputs = 0.5 * (out1 + out2)
+                    
+                    # Save logits and targets for NLL calculation
+                    if calculate_metrics:
+                        all_logits.append(outputs.detach().cpu())
+                        all_targets.append(targets.detach().cpu())
                     
                     # Top-1 accuracy
                     _, predicted = outputs.max(1)
@@ -255,7 +399,22 @@ def evaluate(model, loader, device, args, ensemble_models=None):
                     
                     total += targets.size(0)
             
-            return 100. * correct / total, 100. * correct_top5 / total, None, None
+            acc = 100. * correct / total
+            acc_top5 = 100. * correct_top5 / total
+            
+            # Calculate NLLc if needed
+            nllc = None
+            if calculate_metrics and optimal_temp is not None:
+                all_logits = torch.cat(all_logits)
+                all_targets = torch.cat(all_targets)
+                
+                # Apply temperature scaling
+                scaled_logits = all_logits / optimal_temp
+                
+                # Calculate NLLc
+                nllc = calculate_nll(scaled_logits, all_targets)
+                
+            return acc, acc_top5, None, None, nllc
             
         elif args.approach in ['mimo', 'linear_mixmo', 'linear_mixmo_cutmix', 'cut_mixmo', 'cut_mixmo_cutmix']:
             # MixMo evaluation
@@ -264,9 +423,11 @@ def evaluate(model, loader, device, args, ensemble_models=None):
             correct2 = 0
             correct_top5 = 0
             total = 0
+            all_logits = []
+            all_targets = []
             
             with torch.no_grad():
-                for inputs, targets in tqdm(loader, desc="Evaluating"):
+                for inputs, targets in tqdm(test_loader, desc="Evaluating"):
                     inputs, targets = inputs.to(device), targets.to(device)
                     
                     # For inference, use the same input for both branches
@@ -274,6 +435,11 @@ def evaluate(model, loader, device, args, ensemble_models=None):
                     
                     # Ensemble prediction (average of both outputs)
                     ensemble_output = (out1 + out2) / 2
+                    
+                    # Save logits and targets for NLL calculation
+                    if calculate_metrics:
+                        all_logits.append(ensemble_output.detach().cpu())
+                        all_targets.append(targets.detach().cpu())
                     
                     # Top-1 accuracy
                     _, predicted_ensemble = ensemble_output.max(1)
@@ -299,9 +465,21 @@ def evaluate(model, loader, device, args, ensemble_models=None):
             acc1 = 100. * correct1 / total
             acc2 = 100. * correct2 / total
             
-            return acc_ensemble, acc_top5, acc1, acc2
+            # Calculate NLLc if needed
+            nllc = None
+            if calculate_metrics and optimal_temp is not None:
+                all_logits = torch.cat(all_logits)
+                all_targets = torch.cat(all_targets)
+                
+                # Apply temperature scaling
+                scaled_logits = all_logits / optimal_temp
+                
+                # Calculate NLLc
+                nllc = calculate_nll(scaled_logits, all_targets)
+                
+            return acc_ensemble, acc_top5, acc1, acc2, nllc
     
-    return None, None, None, None
+    return None, None, None, None, None
 
 def main():
     args = parse_args()
@@ -368,7 +546,7 @@ def main():
     # Setup models and optimizers
     if args.approach in ['de', 'de_cutmix']:
         # Deep Ensemble with 2 networks
-        models = [get_model(args, num_classes, i).to(device) for i in range(2)]
+        models = [get_model(args, num_classes).to(device) for i in range(2)]
         optimizers = [
             optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=weight_decay)
             for model in models
@@ -401,7 +579,8 @@ def main():
         'test_acc': [],
         'test_top5_acc': [],
         'test_acc_subnet1': [],
-        'test_acc_subnet2': []
+        'test_acc_subnet2': [],
+        'test_nllc': []  # Adding NLLc tracking
     }
     
     best_acc = 0.0
@@ -427,8 +606,12 @@ def main():
             train_loss /= 2
             train_acc /= 2
             
-            # Evaluate ensemble
-            test_acc, test_top5_acc, _, _ = evaluate(None, test_loader, device, args, ensemble_models=models)
+            # Regular evaluation without NLLc for training monitoring
+            test_acc, test_top5_acc, test_acc1, test_acc2, _ = evaluate(
+                None, test_loader, device, args, 
+                ensemble_models=models,
+                calculate_metrics=False
+            )
             
         else:
             # Train single model
@@ -438,12 +621,15 @@ def main():
             )
             scheduler.step()
             
-            # Evaluate
-            test_acc, test_top5_acc, test_acc1, test_acc2 = evaluate(model, test_loader, device, args)
+            # Regular evaluation without NLLc for training monitoring
+            test_acc, test_top5_acc, test_acc1, test_acc2, _ = evaluate(
+                model, test_loader, device, args,
+                calculate_metrics=False
+            )
         
-        # Log results
+        # Log regular results
         results['epoch'].append(epoch)
-        results['train_loss'].append(float(train_loss))  # Convert to float for JSON serialization
+        results['train_loss'].append(float(train_loss))
         results['train_acc'].append(float(train_acc))
         results['test_acc'].append(float(test_acc))
         results['test_top5_acc'].append(float(test_top5_acc) if test_top5_acc is not None else None)
@@ -451,6 +637,9 @@ def main():
         if test_acc1 is not None:
             results['test_acc_subnet1'].append(float(test_acc1))
             results['test_acc_subnet2'].append(float(test_acc2))
+        
+        # For now, just add None for NLLc during training
+        results['test_nllc'].append(None)
         
         # Print epoch results
         print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
@@ -475,16 +664,81 @@ def main():
                 
             print(f"New best model saved with accuracy: {best_acc:.2f}%")
     
-    # Save final results
-    results['best_acc'] = float(best_acc)
-    results['best_epoch'] = best_epoch
+    # After training, split test set in half for temperature calibration
+    test_indices = list(range(len(test_loader.dataset)))
+    np.random.shuffle(test_indices)
+    split_index = len(test_indices) // 2
     
-    results_path = os.path.join(args.save_dir, f"{exp_name}_results.json")
-    with open(results_path, 'w') as f:
-        json.dump(results, f, indent=4)
+    # Create calibration and evaluation datasets
+    from torch.utils.data import Subset, DataLoader
+    calib_dataset = Subset(test_loader.dataset, test_indices[:split_index])
+    eval_dataset = Subset(test_loader.dataset, test_indices[split_index:])
     
-    print(f"Training completed. Best test accuracy: {best_acc:.2f}% at epoch {best_epoch+1}")
-    print(f"Results saved to {results_path}")
+    # Create corresponding data loaders
+    calib_loader = DataLoader(
+        calib_dataset, 
+        batch_size=args.batch_size,
+        shuffle=False
+    )
+    
+    eval_loader = DataLoader(
+        eval_dataset, 
+        batch_size=args.batch_size,
+        shuffle=False
+    )
+    
+    # Load best model(s) for final evaluation
+    if args.approach in ['de', 'de_cutmix']:
+        for i, model in enumerate(models):
+            model_path = os.path.join(args.save_dir, f"{exp_name}_model{i+1}_best.pth")
+            model.load_state_dict(torch.load(model_path))
+            model.eval()
+        
+        # Optimize temperature on calibration set
+        print("Optimizing temperature for calibration...")
+        optimal_temp = optimize_temperature(None, calib_loader, device, args, ensemble_models=models)
+        print(f"Optimal temperature: {optimal_temp:.4f}")
+        
+        # Final evaluation with temperature scaling on evaluation set
+        test_acc, test_top5_acc, test_acc1, test_acc2, nllc = evaluate(
+            None, eval_loader, device, args,
+            ensemble_models=models,
+            optimal_temp=optimal_temp
+        )
+        
+    else:
+        # Load the best model
+        model_path = os.path.join(args.save_dir, f"{exp_name}_best.pth")
+        model.load_state_dict(torch.load(model_path))
+        model.eval()
+        
+        # Optimize temperature on calibration set
+        print("Optimizing temperature for calibration...")
+        optimal_temp = optimize_temperature(model, calib_loader, device, args)
+        print(f"Optimal temperature: {optimal_temp:.4f}")
+        
+        # Final evaluation with temperature scaling on evaluation set
+        test_acc, test_top5_acc, test_acc1, test_acc2, nllc = evaluate(
+           model, eval_loader, device, args,
+           optimal_temp=optimal_temp
+        )
+               
+        # Update results with final NLLc value
+        if nllc is not None:
+           results['final_nllc'] = float(nllc)
+           print(f"Final NLLc: {nllc:.4f}")
+        
+        # Save final results
+        results['best_acc'] = float(best_acc)
+        results['best_epoch'] = best_epoch
+        results['optimal_temperature'] = float(optimal_temp)
+        
+        results_path = os.path.join(args.save_dir, f"{exp_name}_results.json")
+        with open(results_path, 'w') as f:
+           json.dump(results, f, indent=4)
+        
+        print(f"Training completed. Best test accuracy: {best_acc:.2f}% at epoch {best_epoch+1}")
+        print(f"Results saved to {results_path}")
 
 if __name__ == "__main__":
-    main()
+   main()

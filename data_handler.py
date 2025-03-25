@@ -207,6 +207,90 @@ class DataHandler:
         val_dataset = TinyImageNetDataset(root=self.data_root, transform=val_transform, train=False)
         
         return self._create_data_loaders(train_dataset, val_dataset, batch_size, batch_repetitions)
+        
+    def get_mixup_loader(self, dataset, batch_size=128, alpha=1.0, batch_repetitions=1, num_classes=10):
+        """
+        Create a DataLoader with MixUp augmentation.
+        
+        Args:
+            dataset: Dataset to apply MixUp to
+            batch_size: Batch size for dataloader
+            alpha: Alpha parameter for Beta distribution
+            batch_repetitions: Number of times to repeat each sample
+            num_classes: Number of classes in the dataset
+                
+        Returns:
+            DataLoader with MixUp augmentation
+        """
+        # Create the DataLoader
+        if batch_repetitions > 1:
+            loader = self._create_repeated_dataloader(
+                dataset, batch_size, batch_repetitions)
+        else:
+            loader = DataLoader(
+                dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    
+        # Define a MixUp collate function
+        def mixup_collate_fn(batch):
+            from torch.utils.data._utils.collate import default_collate
+            batch = default_collate(batch)
+            
+            # Unpack the batch
+            inputs, targets = batch
+            batch_size = inputs.size(0)
+            
+            # Sample lambda from beta distribution
+            if alpha > 0:
+                lam = np.random.beta(alpha, alpha)
+            else:
+                lam = 1  # No mixup
+            
+            # Create shuffled indices
+            indices = torch.randperm(batch_size).to(inputs.device)
+            
+            # Mix the inputs
+            mixed_inputs = lam * inputs + (1 - lam) * inputs[indices]
+            
+            # Convert targets to one-hot encoding
+            targets_one_hot = torch.zeros(batch_size, num_classes, device=inputs.device)
+            targets_one_hot.scatter_(1, targets.unsqueeze(1), 1)
+            
+            # Create mixed targets
+            mixed_targets = lam * targets_one_hot + (1 - lam) * targets_one_hot[indices]
+            
+            return mixed_inputs, mixed_targets
+    
+        # If using batch repetitions, we'll need to apply MixUp after batch creation
+        if batch_repetitions > 1:
+            # Return a wrapper that applies MixUp to each batch
+            original_loader = loader
+            
+            class MixUpLoaderWrapper:
+                def __init__(self, loader, collate_fn):
+                    self.loader = loader
+                    self.collate_fn = collate_fn
+                
+                def __iter__(self):
+                    for batch in self.loader:
+                        yield self.collate_fn(batch)
+                
+                def __len__(self):
+                    return len(self.loader)
+            
+            return MixUpLoaderWrapper(original_loader, mixup_collate_fn)
+        
+        # Create a new DataLoader with our custom collate function
+        mixup_loader = DataLoader(
+            dataset, 
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True,
+            collate_fn=mixup_collate_fn
+        )
+        
+        return mixup_loader
+
     
     def get_cutmix_loader(self, dataset, batch_size=128, alpha=1.0, batch_repetitions=1, num_classes=10):
         """
@@ -461,7 +545,96 @@ class RepeatedSampler(Sampler):
     
     def __len__(self):
         return self.num_samples * self.repetitions
-
+# Implementation of MixUp as a torchvision transform (similar to v2.CutMix)
+class MixUp(torch.nn.Module):
+    """
+    MixUp data augmentation.
+    
+    MixUp combines pairs of images and their labels proportionally, 
+    where the proportion is sampled from a Beta distribution.
+    
+    Args:
+        alpha (float): The alpha parameter of the Beta distribution that 
+                      lambda is sampled from. Default: 1.0.
+        num_classes (int, optional): Number of classes in the dataset.
+        labels_getter (callable, optional): Function that returns the labels from an input target.
+    """
+    def __init__(self, alpha=1.0, num_classes=None, labels_getter='default'):
+        super().__init__()
+        self.alpha = alpha
+        self.num_classes = num_classes
+        self.labels_getter = labels_getter
+    
+    def forward(self, images, target):
+        """
+        Args:
+            images (Tensor): Input images to mix
+            target (Tensor or dict): Target for the image
+            
+        Returns:
+            images (Tensor): Mixed images
+            target (Tensor or dict): Mixed targets
+        """
+        if images.ndim != 4:
+            raise ValueError(f"Expected 4D input but got {images.ndim}D input")
+        
+        # Get batch size
+        batch_size = images.size(0)
+        
+        # If no mixup, return original images and targets
+        if not batch_size > 1 or self.alpha <= 0:
+            return images, target
+        
+        # Sample lambda from Beta distribution
+        lam = float(torch.distributions.Beta(self.alpha, self.alpha).sample())
+        
+        # Create shuffled indices
+        indices = torch.randperm(batch_size, device=images.device)
+        
+        # Mix images
+        mixed_images = lam * images + (1 - lam) * images[indices]
+        
+        # Get labels from target
+        if self.labels_getter == 'default':
+            # If target is a Tensor, it's assumed to be class indices
+            if isinstance(target, torch.Tensor):
+                labels = target
+            # If target is a dict, try to get 'labels' key
+            elif isinstance(target, dict) and 'labels' in target:
+                labels = target['labels']
+            else:
+                raise ValueError("Unsupported target type. Provide a custom labels_getter.")
+        else:
+            # Use custom labels getter
+            labels = self.labels_getter(target)
+        
+        # Handle target mixing
+        if self.num_classes is not None:
+            # Convert to one-hot
+            one_hot_labels = torch.zeros(
+                (batch_size, self.num_classes), device=labels.device, dtype=torch.float32
+            )
+            one_hot_labels.scatter_(1, labels.unsqueeze(1), 1)
+            
+            # Mix one-hot labels
+            mixed_labels = lam * one_hot_labels + (1 - lam) * one_hot_labels[indices]
+            
+            # Update target appropriately
+            if isinstance(target, torch.Tensor):
+                target = mixed_labels
+            elif isinstance(target, dict):
+                target = target.copy()
+                target['labels'] = mixed_labels
+        else:
+            # Without num_classes, we simply return the lambda and permuted indices
+            # so the loss function can compute the mixed loss
+            if isinstance(target, torch.Tensor):
+                target = (labels, labels[indices], lam)
+            elif isinstance(target, dict):
+                target = target.copy()
+                target['labels'] = (labels, labels[indices], lam)
+        
+        return mixed_images, target
 class TinyImageNetDataset(Dataset):
     """
     Dataset for TinyImageNet.
