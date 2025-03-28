@@ -14,7 +14,8 @@ def cut_mixmo(l0, l1, alpha=2.0):
     This implements equation (2) from the paper:
     M_Cut-MixMo(l0, l1) = 2[1_M ⊙ l0 + (1 - 1_M) ⊙ l1]
     
-    Where 1_M is a binary mask with area ratio κ ~ Beta(α, α).
+    Where 1_M is a binary mask with area ratio κ ~ Beta(α, α),
+    valued at 1 either on a rectangle or on the complementary of a rectangle.
     
     Args:
         l0: First feature embedding tensor [batch_size, channels, height, width]
@@ -34,62 +35,95 @@ def cut_mixmo(l0, l1, alpha=2.0):
     # Create binary masks for each example in the batch
     masks = []
     for i in range(batch_size):
-        # Calculate patch area based on kappa - if it was 20%, based on h and w calculate shape
-        patch_area = kappa[i].item() * height * width
+        # Calculate rectangle dimensions for the given area ratio kappa
+        # Ensure dimensions are at least 1 to avoid division by zero errors
         
-        # Calculate patch dimensions (approximately square) - to simplify 
-        patch_height = int(math.sqrt(patch_area))
-        patch_width = int(patch_area / patch_height)
+        # Step 1: Calculate total area to be covered by the mask
+        target_area = kappa[i].item() * height * width
         
-        # Ensure patch dimensions are valid - so we don't go outside shape
-        patch_height = max(1, min(patch_height, height))
-        patch_width = max(1, min(patch_width, width))
+        # Step 2: Calculate rectangle dimensions (approximating a square where possible)
+        # We're calculating sqrt(target_area) and then adjusting as needed
+        rect_h = int(math.sqrt(target_area))
+        if rect_h < 1:  # Ensure at least 1 pixel height
+            rect_h = 1
         
-        # Sample random location for the patch
-        top = torch.randint(0, height - patch_height + 1, (1,)).item()
-        left = torch.randint(0, width - patch_width + 1, (1,)).item()
+        # Calculate width based on height to match the target area
+        rect_w = int(target_area / rect_h)
+        if rect_w < 1:  # Ensure at least 1 pixel width
+            rect_w = 1
+            
+        # Adjust dimensions to avoid exceeding the feature map
+        rect_h = min(rect_h, height)
+        rect_w = min(rect_w, width)
         
-        # Create binary mask (initialized with zeros)
+        # Step 3: Sample random location for the rectangle
+        # Ensure we don't go out of bounds
+        y = 0
+        x = 0
+        
+        if height > rect_h:
+            y = torch.randint(0, height - rect_h + 1, (1,)).item()
+        if width > rect_w:
+            x = torch.randint(0, width - rect_w + 1, (1,)).item()
+        
+        # Step 4: Create the binary mask
         mask = torch.zeros(height, width, device=device)
+        mask[y:y+rect_h, x:x+rect_w] = 1
         
-        # Set the patch area to 1
-        mask[top:top+patch_height, left:left+patch_width] = 1
-        
-        # Randomly decide whether to use the mask or its complement
+        # Step 5: Randomly decide whether to use the mask or its complement
+        # This matches the paper's description that the mask is valued at 1
+        # either on a rectangle or on the complementary of a rectangle
         if torch.rand(1).item() > 0.5:
             mask = 1 - mask
-            
+        
         masks.append(mask)
     
-    # Stack masks and add channel dimension
+    # Stack masks and add channel dimension for broadcasting
     binary_mask = torch.stack(masks)[:, None, :, :]
     
-    # Expand mask to match feature dimensions
+    # Expand mask to match feature dimensions (across all channels)
     binary_mask = binary_mask.expand_as(l0)
     
     # Apply Cut-MixMo formula: 2[1_M ⊙ l0 + (1 - 1_M) ⊙ l1]
+    # The factor of 2 is explicitly mentioned in the paper
     mixed_features = 2 * (binary_mask * l0 + (1 - binary_mask) * l1)
     
-    return mixed_features, kappa, masks
+    # Return the mixed features and the mixing ratio kappa
+    return mixed_features, kappa
 
 
     
-def linear_mixmo(self, l0: torch.Tensor, l1: torch.Tensor, lam: torch.Tensor = torch.tensor(0.5)) -> torch.Tensor:
+def linear_mixmo(l0, l1, alpha=2.0):
     """
-    Mix features using linear interpolation.
+    Implementation of Linear-MixMo augmentation from the paper:
+    "MixMo: Mixing Multiple Inputs for Multiple Outputs via Deep Subnetworks"
     
-    Formula: MLinear-MixMo (l0, l1) = 2[λl0 + (1-λ)l1]
+    This implements the mixing block from section 3.2 of the paper:
+    MLinear-MixMo(l0, l1) = 2[κl0 + (1-κ)l1]
+    
+    Where κ ~ Beta(α, α).
     
     Args:
-        l0: Features from first encoder
-        l1: Features from second encoder
-        lam: Mixing ratios
+        l0: First feature embedding tensor [batch_size, channels, height, width]
+        l1: Second feature embedding tensor [batch_size, channels, height, width]
+        alpha: Parameter for Beta distribution (default 2.0)
         
     Returns:
-        Mixed features
+        Mixed feature embeddings and the mixing ratios κ used
     """
-    # Apply linear mixing (MLinear-MixMo)
-    # Formula: MLinear-MixMo (l0, l1) = 2[λl0 + (1-λ)l1]
-    mixed_features = 2 * (lam * l0 + (1 - lam) * l1)
+    # Get tensor dimensions
+    batch_size = l0.shape[0]
+    device = l0.device
     
-    return mixed_features
+    # Sample mixing ratio kappa from Beta(α, α)
+    kappa = torch.distributions.Beta(alpha, alpha).sample((batch_size,)).to(device)
+    
+    # Reshape kappa for proper broadcasting
+    kappa_reshaped = kappa.view(batch_size, 1, 1, 1)
+    
+    # Apply Linear-MixMo formula: 2[κl0 + (1-κ)l1]
+    # The factor of 2 is explicitly mentioned in the paper
+    mixed_features = 2 * (kappa_reshaped * l0 + (1 - kappa_reshaped) * l1)
+    
+    # Return the mixed features and the mixing ratio kappa
+    return mixed_features, kappa

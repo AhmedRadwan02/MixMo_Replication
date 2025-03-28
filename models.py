@@ -130,13 +130,10 @@ class Wide_ResNet_Dual(nn.Module):
         # Apply feature augmentation based on the specified type
         if self.augmentation_type.lower() == 'linearmixmo':
             # Linear interpolation between feature maps
-            alpha = 2.0  # As per MixMo paper
-            lam = np.random.beta(alpha, alpha)
-            # 2.0 multiplication as per MixMo paper
-            mixed_features = linear_mixmo(features1, features2, lam)
+            mixed_features, kappa = linear_mixmo(features1, features2, alpha=2.0)
             out_mix1 = self.classifier1(mixed_features)
             out_mix2 = self.classifier2(mixed_features)
-            return out1, out2, out_mix1, out_mix2, torch.tensor(lam)
+            return out1, out2, out_mix1, out_mix2, kappa
             
         elif self.augmentation_type.lower() == 'cutmixmo':
             # Check if we should use patch mixing or linear mixing
@@ -150,17 +147,16 @@ class Wide_ResNet_Dual(nn.Module):
                 mixed_features, kappa = cut_mixmo(features1, features2, alpha=2.0)
             else:
                 # Use linear mixing instead (accommodate for inference mode)
-                alpha = 2.0
-                lam = np.random.beta(alpha, alpha)
-                mixed_features = linear_mixmo(features1, features2, lam)
-                kappa = torch.tensor(lam)
+                mixed_features, kappa = linear_mixmo(features1, features2, alpha=2.0)
             
             out_mix1 = self.classifier1(mixed_features)
             out_mix2 = self.classifier2(mixed_features)
             return out1, out2, out_mix1, out_mix2, kappa
             
         else:  # No augmentation or unknown type
-            return out1, out2
+            # For no augmentation, just return the two original outputs
+            # and placeholder None values for compatibility
+            return out1, out2, None, None, None
 
 def Wide_ResNet28(widen_factor=10, dropout_rate=0.3, 
                   num_classes=10, augmentation_type='none'):
@@ -287,13 +283,10 @@ class PreActResNet_Dual(nn.Module):
         # Apply feature augmentation based on the specified type
         if self.augmentation_type.lower() == 'linearmixmo':
             # Linear interpolation between feature maps
-            alpha = 2.0  # As per MixMo paper
-            lam = np.random.beta(alpha, alpha)
-            # 2.0 multiplication as per MixMo paper
-            mixed_features = linear_mixmo(features1, features2, lam)
+            mixed_features, kappa = linear_mixmo(features1, features2, alpha=2.0)
             out_mix1 = self.classifier1(mixed_features)
             out_mix2 = self.classifier2(mixed_features)
-            return out1, out2, out_mix1, out_mix2, torch.tensor(lam)
+            return out1, out2, out_mix1, out_mix2, kappa
             
         elif self.augmentation_type.lower() == 'cutmixmo':
             # Check if we should use patch mixing or linear mixing
@@ -307,17 +300,16 @@ class PreActResNet_Dual(nn.Module):
                 mixed_features, kappa = cut_mixmo(features1, features2, alpha=2.0)
             else:
                 # Use linear mixing instead (accommodate for inference mode)
-                alpha = 2.0
-                lam = np.random.beta(alpha, alpha)
-                mixed_features = linear_mixmo(features1, features2, lam)
-                kappa = torch.tensor(lam)
+                mixed_features, kappa = linear_mixmo(features1, features2, alpha=2.0)
             
             out_mix1 = self.classifier1(mixed_features)
             out_mix2 = self.classifier2(mixed_features)
             return out1, out2, out_mix1, out_mix2, kappa
             
         else:  # No augmentation or unknown type
-            return out1, out2
+            # For no augmentation, just return the two original outputs
+            # and placeholder None values for compatibility
+            return out1, out2, None, None, None
 
 def PreActResNet18(widen_factor=2, num_classes=10, augmentation_type='none'):
     """Create a PreActResNet-18-w with dual encoders and specified augmentation"""
