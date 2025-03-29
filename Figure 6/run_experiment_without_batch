@@ -1,0 +1,18 @@
+# to run diff mixing methods  use these codes
+
+# Linear-MixMo without CutMix, batch=1:
+python without_batch_repetition.py --approach linear_mixmo --dataset cifar100
+
+# Cut-MixMo without CutMix, batch=1:
+python without_batch_repetition.py --approach cut_mixmo --dataset cifar100
+
+
+# Linear-MixMo with CutMix, batch=1:
+python train_mixmo.py --approach linear_mixmo --use_cutmix --dataset cifar100
+# OR
+python train_mixmo.py --approach linear_mixmo_cutmix --dataset cifar100
+
+# Cut-MixMo with CutMix, batch=1:
+python train_mixmo.py --approach cut_mixmo --use_cutmix --dataset cifar100
+# OR
+python train_mixmo.py --approach cut_mixmo_cutmix --dataset cifar100
