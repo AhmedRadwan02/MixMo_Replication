@@ -1,0 +1,6 @@
+ # to run the experiment without CutMix we have
+# For Linear-MixMo with batch repetition = 2:
+python train_mixmo.py --approach linear_mixmo --batch_repetitions 2 --dataset cifar100
+
+# For Cut-MixMo with batch repetition = 4:
+python train_mixmo.py --approach cut_mixmo --batch_repetitions 4 --dataset cifar100
