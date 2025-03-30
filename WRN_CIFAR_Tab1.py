@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train MixMo models')
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar10', 'cifar100'])
     parser.add_argument('--approach', type=str, required=True, 
-                      choices=['linear_mixmo_cutmix', 'cut_mixmo_cutmix'])
+                      choices=['linear_mixmo','cut_mixmo','linear_mixmo_cutmix', 'cut_mixmo_cutmix'])
     parser.add_argument('--width', type=int, default=10)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--batch_repetitions', type=int, default=2, help='Batch repetition factor (b parameter)')
@@ -37,9 +37,9 @@ def set_seed(seed):
 def get_model(args, num_classes):
     """Create model based on specified approach"""
     aug_type = 'none'
-    if args.approach == 'linear_mixmo_cutmix':
+    if args.approach in ['linear_mixmo','linear_mixmo_cutmix']:
         aug_type = 'LinearMixMo'
-    elif args.approach == 'cut_mixmo_cutmix':
+    elif args.approach in ['cut_mixmo','cut_mixmo_cutmix']:
         aug_type = 'CutMixMo'
     
     return Wide_ResNet28(
@@ -157,7 +157,7 @@ def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epo
     mixing_prob = 0.5  # Default mixing probability
     
     # Calculate when to start decreasing probability (last 1/12 of training)
-    if args.approach == 'cut_mixmo_cutmix' and total_epochs is not None:
+    if args.approach in ['cut_mixmo','cut_mixmo_cutmix'] and total_epochs is not None:
         decay_start = total_epochs - total_epochs // 12
         
         if epoch >= decay_start:
@@ -184,7 +184,7 @@ def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epo
         
         # For Cut-MixMo, decide whether to use patch mixing or linear mixing
         use_patch_mixing = True  # Default for Cut-MixMo is patch mixing
-        if args.approach == 'cut_mixmo_cutmix':
+        if args.approach in ['cut_mixmo','cut_mixmo_cutmix']:
             use_patch_mixing = torch.rand(1).item() < mixing_prob
         
         # Set mixing mode before forward pass
@@ -353,12 +353,13 @@ def main():
         )
     
     # Apply CutMix to the training loader
-    train_loader = data_handler.get_cutmix_loader(
-        dataset=train_loader.dataset,
-        batch_size=args.batch_size * batch_repetitions,
-        alpha=args.alpha,
-        num_classes=num_classes
-    )
+    if(args.approach in ['cut_mixmo_cutmix','linear_mixmo_cutmix']):
+        train_loader = data_handler.get_cutmix_loader(
+            dataset=train_loader.dataset,
+            batch_size=args.batch_size * batch_repetitions,
+            alpha=args.alpha,
+            num_classes=num_classes
+        )
     
     # Create and configure model
     model = get_model(args, num_classes).to(device)
