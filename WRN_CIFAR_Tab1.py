@@ -341,25 +341,41 @@ def main():
     batch_repetitions = args.batch_repetitions
     print(f"Using batch repetition: b = {batch_repetitions}")
         
-    if args.dataset == 'cifar10':
-        train_loader, test_loader = data_handler.get_cifar10(
-            batch_size=args.batch_size, 
-            batch_repetitions=batch_repetitions
-        )
-    else:  # cifar100
-        train_loader, test_loader = data_handler.get_cifar100(
-            batch_size=args.batch_size, 
-            batch_repetitions=batch_repetitions
-        )
-    
-    # Apply CutMix to the training loader
-    if(args.approach in ['cut_mixmo_cutmix','linear_mixmo_cutmix']):
+    if args.approach in ['cut_mixmo_cutmix', 'linear_mixmo_cutmix']:
+        # For CutMix approaches, we need to load the dataset first without repetitions
+        # and then apply CutMix and repetitions in one step
+        if args.dataset == 'cifar10':
+            # Get the dataset without repetitions first (batch_repetitions=1)
+            train_loader, test_loader = data_handler.get_cifar10(
+                batch_size=args.batch_size, 
+                batch_repetitions=1  # No repetitions yet
+            )
+        else:  # cifar100
+            train_loader, test_loader = data_handler.get_cifar100(
+                batch_size=args.batch_size, 
+                batch_repetitions=1  # No repetitions yet
+            )
+            
+        # Now apply CutMix and repetitions together
         train_loader = data_handler.get_cutmix_loader(
-            dataset=train_loader.dataset,
+            dataset=train_loader.dataset,  # Use the dataset, not the loader
             batch_size=args.batch_size * batch_repetitions,
             alpha=args.alpha,
+            batch_repetitions=batch_repetitions,  # Apply repetitions here
             num_classes=num_classes
         )
+    else:
+        # For non-CutMix approaches, use the regular loading with repetitions
+        if args.dataset == 'cifar10':
+            train_loader, test_loader = data_handler.get_cifar10(
+                batch_size=args.batch_size * batch_repetitions, 
+                batch_repetitions=batch_repetitions
+            )
+        else:  # cifar100
+            train_loader, test_loader = data_handler.get_cifar100(
+                batch_size=args.batch_size * batch_repetitions, 
+                batch_repetitions=batch_repetitions
+            )
     
     # Create and configure model
     model = get_model(args, num_classes).to(device)
