@@ -329,7 +329,7 @@ def main():
     # Get dataset specific parameters
     num_classes = 200 if args.dataset == 'tinyimagenet' 
     
-    args.epochs = 1000
+    args.epochs = 1200
     
     weight_decay = 1e-4
     
@@ -360,7 +360,7 @@ def main():
         weight_decay=weight_decay
     )
 
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[600, 900, 1200], gamma=0.1)
+    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[600, 900], gamma=0.1)
     # Generate experiment name
     exp_name = f"{args.approach}_b{batch_repetitions}_wrn{args.width}_{args.dataset}_run{args.run_number}"
     print(f"Starting experiment: {exp_name}")
