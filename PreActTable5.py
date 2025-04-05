@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument('--approach', type=str, required=True, 
                       choices=['linear_mixmo','cut_mixmo'])
     parser.add_argument('--width', type=int, default=1,choices = [1,2,3])
-    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--batch_repetitions', type=int, default=2, help='Batch repetition factor (b parameter)')
     parser.add_argument('--epochs', type=int, default=None, help='If None, will use approach-specific default')
     parser.add_argument('--alpha', type=float, default=1.0, help='Alpha parameter for Beta distribution')
@@ -327,7 +327,7 @@ def main():
     print(f"Using device: {device}")
     
     # Get dataset specific parameters
-    num_classes = 200 if args.dataset == 'tinyimagenet' 
+    num_classes = 200
     
     args.epochs = 1200
     
@@ -360,7 +360,7 @@ def main():
         weight_decay=weight_decay
     )
 
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[600, 900], gamma=0.1)
+    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[600, 900, 1200], gamma=0.1)
     # Generate experiment name
     exp_name = f"{args.approach}_b{batch_repetitions}_wrn{args.width}_{args.dataset}_run{args.run_number}"
     print(f"Starting experiment: {exp_name}")

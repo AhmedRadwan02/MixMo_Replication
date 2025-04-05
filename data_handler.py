@@ -8,8 +8,8 @@ from torchvision.transforms import v2  # Import v2 for CutMix
 from torchvision.transforms.functional import InterpolationMode
 from PIL import Image
 import random
-from datasets import load_dataset
-os.system("pip install -q kagglehub")
+from datasets import load_dataset,load_from_disk
+os.system("pip install --no-index kagglehub")
 import kagglehub
 
 class CIFAR100CDataset(Dataset):
@@ -176,7 +176,7 @@ class DataHandler:
         # Create the dataset and dataloader
         test_dataset = CIFAR100CDataset(corrupted_images, labels, transform=test_transform)
         test_loader = DataLoader(
-            test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+            test_dataset, batch_size=batch_size, shuffle=False, num_workers=6, pin_memory=True)
         
         return test_loader
     
@@ -203,8 +203,8 @@ class DataHandler:
         )
     
         # Load datasets using the TinyImageNetDataset class
-        train_dataset = TinyImageNetDataset(root=self.data_root, transform=train_transform, train=True)
-        val_dataset = TinyImageNetDataset(root=self.data_root, transform=val_transform, train=False)
+        train_dataset = TinyImageNetDataset(root="/home/ahmedyra/projects/def-hinat/ahmedyra/MixMo_Replication-main/tiny-imagenet-200", transform=train_transform, train=True)
+        val_dataset = TinyImageNetDataset(root="/home/ahmedyra/projects/def-hinat/ahmedyra/MixMo_Replication-main/tiny-imagenet-200", transform=val_transform, train=False)
         
         return self._create_data_loaders(train_dataset, val_dataset, batch_size, batch_repetitions)
         
@@ -635,23 +635,99 @@ class MixUp(torch.nn.Module):
                 target['labels'] = (labels, labels[indices], lam)
         
         return mixed_images, target
+
+
 class TinyImageNetDataset(Dataset):
     """
-    Dataset for TinyImageNet.
+    Dataset for TinyImageNet with local file access (no internet required).
+    Follows the standard TinyImageNet file structure.
     """
     def __init__(self, root, transform=None, train=True):
-        self.data = load_dataset("zh-plus/tiny-imagenet")
         self.root = root
         self.transform = transform
         self.train = train
         
-        # Set the appropriate split based on train flag
-        self.split = 'train' if self.train else 'valid'
+        # Set the appropriate split folder based on train flag
+        self.split_dir = 'train' if self.train else 'val'
+        self.split_path = os.path.join(self.root, self.split_dir)
         
+        self.images = []
+        self.targets = []
+        
+        # First, load class ID mapping from wnids.txt
+        wnids_path = os.path.join(self.root, 'wnids.txt')
+        if not os.path.exists(wnids_path):
+            raise FileNotFoundError(f"Could not find wnids.txt at {wnids_path}")
+        
+        with open(wnids_path, 'r') as f:
+            self.classes = [line.strip() for line in f.readlines()]
+        
+        self.class_to_idx = {cls_id: i for i, cls_id in enumerate(self.classes)}
+        
+        if self.train:
+            # For training data, folder structure is:
+            # root/train/n01443537/images/n01443537_0.JPEG
+            for class_id in self.classes:
+                class_dir = os.path.join(self.split_path, class_id)
+                images_dir = os.path.join(class_dir, 'images')
+                
+                if not os.path.isdir(images_dir):
+                    print(f"Warning: Could not find images directory for class {class_id}")
+                    continue
+                
+                for img_name in os.listdir(images_dir):
+                    if img_name.endswith('.JPEG'):
+                        self.images.append(os.path.join(images_dir, img_name))
+                        self.targets.append(self.class_to_idx[class_id])
+        else:
+            # For validation data, images are in: root/val/images/
+            # Labels are in: root/val/val_annotations.txt
+            val_images_dir = os.path.join(self.split_path, 'images')
+            val_annotations_file = os.path.join(self.split_path, 'val_annotations.txt')
+            
+            if not os.path.exists(val_images_dir):
+                raise FileNotFoundError(f"Could not find validation images directory at {val_images_dir}")
+            
+            if not os.path.exists(val_annotations_file):
+                raise FileNotFoundError(f"Could not find validation annotations at {val_annotations_file}")
+            
+            # Create a mapping from filename to class_id
+            val_file_to_class = {}
+            with open(val_annotations_file, 'r') as f:
+                for line in f:
+                    parts = line.strip().split('\t')
+                    if len(parts) < 2:
+                        continue
+                    filename, class_id = parts[0], parts[1]
+                    val_file_to_class[filename] = class_id
+            
+            # Now add all validation images with their labels
+            for img_name in os.listdir(val_images_dir):
+                if img_name.endswith('.JPEG') and img_name in val_file_to_class:
+                    class_id = val_file_to_class[img_name]
+                    if class_id in self.class_to_idx:
+                        img_path = os.path.join(val_images_dir, img_name)
+                        self.images.append(img_path)
+                        self.targets.append(self.class_to_idx[class_id])
+                    else:
+                        print(f"Warning: Class ID {class_id} for image {img_name} not found in class mapping")
+                        
+        print(f"Loaded {len(self.images)} images for {'training' if self.train else 'validation'}")
+                                
     def __getitem__(self, index):
-        # Get image and label from the dataset
-        img = self.data[self.split]['image'][index]
-        target = self.data[self.split]['label'][index]
+        # Get image path and target
+        img_path = self.images[index]
+        target = self.targets[index]
+        
+        # Open image file
+        try:
+            with open(img_path, 'rb') as f:
+                img = Image.open(f)
+                img = img.convert('RGB')
+        except Exception as e:
+            print(f"Error loading image {img_path}: {e}")
+            # Return a small black image as fallback
+            img = Image.new('RGB', (64, 64), (0, 0, 0))
         
         # Apply transform if available
         if self.transform is not None:
@@ -660,5 +736,4 @@ class TinyImageNetDataset(Dataset):
         return img, target
     
     def __len__(self):
-        # Return the length of the dataset for the current split
-        return len(self.data[self.split]['image'])
+        return len(self.images)
