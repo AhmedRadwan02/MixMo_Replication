@@ -1,0 +1,2 @@
+Results Include Main tests of CutMix with Linear/Cut MixMo evaluation on CIFAR, w = 10, b = 2,4
+https://drive.google.com/drive/folders/1d8aDrpWYaB-3cTxTFvBcfF-6yHZYZown?usp=sharing

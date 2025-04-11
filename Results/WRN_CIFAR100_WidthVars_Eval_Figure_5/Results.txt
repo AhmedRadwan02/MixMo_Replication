@@ -1,0 +1,5 @@
+Results include WRN on CIFAR 100, with CutMix and withoout Cutmix, b = 4, w = 2,3,5,7,10,14
+w = 10 can be taken from Table_1 Results
+We did not include w = 4 from the paper due to time-constraints and little difference
+
+https://drive.google.com/drive/folders/143fGwEVUJhye29JTs6nxNSEzvrCHURN0?usp=sharing

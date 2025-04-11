@@ -1,0 +1,4 @@
+Results Include complete table of LinearMixMo and CutMixmo Testing on tinyImageNet with w = 1,2,3 b = 2,4
+However, it is missing b = 4 w =2,3 due time constraints and GPU limitations
+
+https://drive.google.com/drive/folders/1PxYQwQg7u4DSZeBBSMhah-oYNCvWWGzC?usp=sharing

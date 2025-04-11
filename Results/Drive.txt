@@ -1,3 +1,0 @@
-The results of all experiments is storted on google drive due to size problems in git
-
-https://drive.google.com/drive/folders/1IRp-KjBuQDxwrmYVLeUyIkasJR3l_cFc?usp=sharing

@@ -199,6 +199,7 @@ def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epo
         # Backward and optimize
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Set max_norm to your desired threshold
         optimizer.step()
         
         running_loss += loss.item()
@@ -329,7 +330,7 @@ def main():
     # Get dataset specific parameters
     num_classes = 200
     
-    args.epochs = 1200
+    args.epochs = 300
     
     weight_decay = 1e-4
     
@@ -360,7 +361,7 @@ def main():
         weight_decay=weight_decay
     )
 
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[600, 900, 1200], gamma=0.1)
+    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200, 250], gamma=0.1)
     # Generate experiment name
     exp_name = f"{args.approach}_b{batch_repetitions}_wrn{args.width}_{args.dataset}_run{args.run_number}"
     print(f"Starting experiment: {exp_name}")
