@@ -110,6 +110,62 @@ train_loader, _ = data_handler.get_cifar10(batch_size=128, batch_repetitions=2)
 # each repeated 2 times consecutively
 ```
 
+## Running the Main Scripts
+
+### WideResNet on CIFAR Datasets
+
+The `WRN_CIFAR_Main.py` script trains WideResNet models on CIFAR-10 or CIFAR-100 with different MixMo approaches:
+
+```bash
+# Train a WideResNet28 with CutMixMo on CIFAR-100
+python WRN_CIFAR_Main.py --dataset cifar100 --approach cut_mixmo --width 10 --batch_size 64 --batch_repetitions 2 --alpha 1.0 --data_root ./data --save_dir ./results --run_number 1
+
+# Train a WideResNet28 with LinearMixMo on CIFAR-10
+python WRN_CIFAR_Main.py --dataset cifar10 --approach linear_mixmo --width 10 --batch_size 64 --batch_repetitions 2 --alpha 1.0 --data_root ./data --save_dir ./results --run_number 1
+
+# Train a WideResNet28 with CutMixMo combined with CutMix data augmentation
+python WRN_CIFAR_Main.py --dataset cifar100 --approach cut_mixmo_cutmix --width 10 --batch_size 64 --batch_repetitions 2 --alpha 1.0 --data_root ./data --save_dir ./results --run_number 1
+```
+
+Parameters:
+- `--dataset`: Dataset to use ('cifar10' or 'cifar100')
+- `--approach`: MixMo approach ('linear_mixmo', 'cut_mixmo', 'linear_mixmo_cutmix', 'cut_mixmo_cutmix')
+- `--width`: Width factor for WideResNet (default: 10)
+- `--batch_size`: Batch size per GPU (default: 64)
+- `--batch_repetitions`: Batch repetition factor (b parameter, default: 2)
+- `--alpha`: Alpha parameter for Beta distribution (default: 1.0)
+- `--data_root`: Path to data directory
+- `--save_dir`: Directory to save results
+- `--run_number`: Run number for averaging results (1, 2, or 3)
+- `--seed`: Random seed (default: 42)
+
+### PreActResNet on TinyImageNet
+
+The `PreAct_TinyImageNet_Main.py` script trains PreActResNet models on TinyImageNet with different MixMo approaches:
+
+```bash
+# Train a PreActResNet18 with CutMixMo on TinyImageNet
+python PreAct_TinyImageNet_Main.py --dataset tinyimagenet --approach cut_mixmo --width 2 --batch_size 100 --batch_repetitions 2 --alpha 2.0 --data_root ./data --save_dir ./results --run_number 1
+
+# Train a PreActResNet18 with LinearMixMo on TinyImageNet
+python PreAct_TinyImageNet_Main.py --dataset tinyimagenet --approach linear_mixmo --width 2 --batch_size 100 --batch_repetitions 2 --alpha 2.0 --data_root ./data --save_dir ./results --run_number 1
+
+# Train a PreActResNet18 with CutMixMo on TinyImageNet with increased width
+python PreAct_TinyImageNet_Main.py --dataset tinyimagenet --approach cut_mixmo --width 3 --batch_size 100 --batch_repetitions 2 --alpha 2.0 --data_root ./data --save_dir ./results --run_number 1
+```
+
+Parameters:
+- `--dataset`: Dataset to use (default: 'tinyimagenet')
+- `--approach`: MixMo approach ('linear_mixmo' or 'cut_mixmo')
+- `--width`: Width factor for PreActResNet (1, 2, or 3)
+- `--batch_size`: Batch size per GPU (default: 100)
+- `--batch_repetitions`: Batch repetition factor (b parameter, default: 2)
+- `--alpha`: Alpha parameter for Beta distribution (default: 1.0)
+- `--data_root`: Path to data directory
+- `--save_dir`: Directory to save results
+- `--run_number`: Run number for averaging results (1, 2, or 3)
+- `--seed`: Random seed (default: 42)
+
 ## Implementation Details
 
 ### CutMix vs CutMixMo
@@ -133,104 +189,9 @@ mixed_images, mixed_labels = cutmix(images, labels)
 
 #### CutMixMo
 
-CutMixMo extends the CutMix concept to feature embeddings in a network. It is typically used with multi-branch networks where the outputs of parallel branches are mixed:
+CutMixMo extends the CutMix concept to feature embeddings in a network. It is typically used with multi-branch networks where the outputs of parallel branches are mixed. The implementation is provided in the MixMo class and is ready to be used.
 
-```python
-import torch
-import math
-
-def cut_mixmo(l0, l1, alpha=2.0):
-    """
-    Implementation of Cut-MixMo augmentation from the paper:
-    "MixMo: Mixing Multiple Inputs for Multiple Outputs via Deep Subnetworks"
-    
-    This implements equation (2) from the paper:
-    M_Cut-MixMo(l0, l1) = 2[1_M ⊙ l0 + (1 - 1_M) ⊙ l1]
-    
-    Where 1_M is a binary mask with area ratio κ ~ Beta(α, α).
-    
-    Args:
-        l0: First feature embedding tensor [batch_size, channels, height, width]
-        l1: Second feature embedding tensor [batch_size, channels, height, width]
-        alpha: Parameter for Beta distribution (default 2.0)
-        
-    Returns:
-        Mixed feature embeddings and the mixing ratios κ used
-    """
-    # Get tensor dimensions
-    batch_size, channels, height, width = l0.shape
-    device = l0.device
-    
-    # Sample mixing ratio kappa from Beta(α, α) - The area to be mixed
-    kappa = torch.distributions.Beta(alpha, alpha).sample((batch_size,)).to(device)
-    
-    # Create binary masks for each example in the batch
-    masks = []
-    for i in range(batch_size):
-        # Calculate patch area based on kappa - if it was 20%, based on h and w calculate shape
-        patch_area = kappa[i].item() * height * width
-        
-        # Calculate patch dimensions (approximately square) - to simplify 
-        patch_height = int(math.sqrt(patch_area))
-        patch_width = int(patch_area / patch_height)
-        
-        # Ensure patch dimensions are valid - so we don't go outside shape
-        patch_height = max(1, min(patch_height, height))
-        patch_width = max(1, min(patch_width, width))
-        
-        # Sample random location for the patch
-        top = torch.randint(0, height - patch_height + 1, (1,)).item()
-        left = torch.randint(0, width - patch_width + 1, (1,)).item()
-        
-        # Create binary mask (initialized with zeros)
-        mask = torch.zeros(height, width, device=device)
-        
-        # Set the patch area to 1
-        mask[top:top+patch_height, left:left+patch_width] = 1
-        
-        # Randomly decide whether to use the mask or its complement
-        if torch.rand(1).item() > 0.5:
-            mask = 1 - mask
-            
-        masks.append(mask)
-    
-    # Stack masks and add channel dimension
-    binary_mask = torch.stack(masks)[:, None, :, :]
-    
-    # Expand mask to match feature dimensions
-    binary_mask = binary_mask.expand_as(l0)
-    
-    # Apply Cut-MixMo formula: 2[1_M ⊙ l0 + (1 - 1_M) ⊙ l1]
-    mixed_features = 2 * (binary_mask * l0 + (1 - binary_mask) * l1)
-    
-    return mixed_features, kappa, masks
-```
-
-Using CutMixMo in a multi-branch network:
-
-```python
-class MixMoNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-        # Create a backbone with shared parameters
-        self.backbone = create_backbone()
-        
-        # Projection layer for final output
-        self.projector = nn.Linear(512, num_classes)
-    
-    def forward(self, x1, x2):
-        # Process the two inputs through the backbone
-        feat1 = self.backbone(x1)
-        feat2 = self.backbone(x2)
-        
-        # Apply CutMixMo to the features
-        mixed_features, _, _ = cut_mixmo(feat1, feat2, alpha=2.0)
-        
-        # Apply the final projection
-        output = self.projector(mixed_features.flatten(1))
-        
-        return output
-```
+The MixMo models (WideResNet28 and PreActResNet18) provided in this repository already implement both Linear and Cut MixMo variants, so you can use them directly as shown in the examples below.
 
 ## Example: Visualizing CutMix
 
