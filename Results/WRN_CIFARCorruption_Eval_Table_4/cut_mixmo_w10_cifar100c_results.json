@@ -1,0 +1,111 @@
+{
+    "model_info": {
+        "model_path": "/Users/ahmed/Desktop/MixMo_Replication/cut_mixmo_b4_wrn10_cifar100_run1_best.pth",
+        "approach": "cut_mixmo",
+        "width": 10,
+        "augmix_trained": false,
+        "severity": 3
+    },
+    "corruption_results": {
+        "brightness": {
+            "top1": 79.21,
+            "top5": 95.11,
+            "nll": 1.2020988971710205
+        },
+        "contrast": {
+            "top1": 65.9,
+            "top5": 88.09,
+            "nll": 2.3189297317504884
+        },
+        "defocus_blur": {
+            "top1": 72.21,
+            "top5": 91.57,
+            "nll": 1.7928901473999024
+        },
+        "elastic_transform": {
+            "top1": 68.9,
+            "top5": 90.58,
+            "nll": 1.933366667175293
+        },
+        "fog": {
+            "top1": 73.55,
+            "top5": 92.33,
+            "nll": 1.6508564628601075
+        },
+        "frost": {
+            "top1": 52.45,
+            "top5": 78.3,
+            "nll": 3.697097790527344
+        },
+        "gaussian_blur": {
+            "top1": 59.77,
+            "top5": 84.39,
+            "nll": 2.9036764434814453
+        },
+        "gaussian_noise": {
+            "top1": 14.52,
+            "top5": 31.48,
+            "nll": 13.619295861816406
+        },
+        "glass_blur": {
+            "top1": 29.15,
+            "top5": 57.07,
+            "nll": 6.899181799316406
+        },
+        "impulse_noise": {
+            "top1": 11.81,
+            "top5": 32.5,
+            "nll": 11.22915161743164
+        },
+        "jpeg_compression": {
+            "top1": 53.81,
+            "top5": 79.9,
+            "nll": 3.0975722274780275
+        },
+        "motion_blur": {
+            "top1": 56.71,
+            "top5": 81.49,
+            "nll": 3.203933726501465
+        },
+        "pixelate": {
+            "top1": 61.54,
+            "top5": 84.52,
+            "nll": 2.627836112976074
+        },
+        "saturate": {
+            "top1": 79.93,
+            "top5": 95.28,
+            "nll": 1.1611403285980224
+        },
+        "shot_noise": {
+            "top1": 21.58,
+            "top5": 43.92,
+            "nll": 10.90202569580078
+        },
+        "snow": {
+            "top1": 63.75,
+            "top5": 86.47,
+            "nll": 2.311310737609863
+        },
+        "spatter": {
+            "top1": 60.04,
+            "top5": 84.71,
+            "nll": 2.5598680587768556
+        },
+        "speckle_noise": {
+            "top1": 30.94,
+            "top5": 56.45,
+            "nll": 7.75571128540039
+        },
+        "zoom_blur": {
+            "top1": 62.85,
+            "top5": 86.38,
+            "nll": 2.5341536407470704
+        }
+    },
+    "average": {
+        "top1": 53.61157894736842,
+        "top5": 75.8178947368421,
+        "nll": 4.389478801727296
+    }
+}
