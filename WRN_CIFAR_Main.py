@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train MixMo models')
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar10', 'cifar100'])
     parser.add_argument('--approach', type=str, required=True, 
-                      choices=['linear_mixmo','cut_mixmo','linear_mixmo_cutmix', 'cut_mixmo_cutmix'])
+                      choices=['linear_mixmo','cut_mixmo','linear_mixmo_cutmix', 'cut_mixmo_cutmix','linear_mixmo_augmix','cut_mixmo_augmix'])
     parser.add_argument('--width', type=int, default=10)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--batch_repetitions', type=int, default=2, help='Batch repetition factor (b parameter)')
@@ -37,9 +37,9 @@ def set_seed(seed):
 def get_model(args, num_classes):
     """Create model based on specified approach"""
     aug_type = 'none'
-    if args.approach in ['linear_mixmo','linear_mixmo_cutmix']:
+    if args.approach in ['linear_mixmo','linear_mixmo_cutmix','linear_mixmo_augmix']:
         aug_type = 'LinearMixMo'
-    elif args.approach in ['cut_mixmo','cut_mixmo_cutmix']:
+    elif args.approach in ['cut_mixmo','cut_mixmo_cutmix','cut_mixmo_augmix']:
         aug_type = 'CutMixMo'
     
     return Wide_ResNet28(
@@ -157,7 +157,7 @@ def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epo
     mixing_prob = 0.5  # Default mixing probability
     
     # Calculate when to start decreasing probability (last 1/12 of training)
-    if args.approach in ['cut_mixmo','cut_mixmo_cutmix'] and total_epochs is not None:
+    if args.approach in ['cut_mixmo','cut_mixmo_cutmix','cut_mixmo_augmix'] and total_epochs is not None:
         decay_start = total_epochs - total_epochs // 12
         
         if epoch >= decay_start:
@@ -184,7 +184,7 @@ def train_epoch(model, train_loader, optimizer, device, args, epoch=0, total_epo
         
         # For Cut-MixMo, decide whether to use patch mixing or linear mixing
         use_patch_mixing = True  # Default for Cut-MixMo is patch mixing
-        if args.approach in ['cut_mixmo','cut_mixmo_cutmix']:
+        if args.approach in ['cut_mixmo','cut_mixmo_cutmix','cut_mixmo_augmix']:
             use_patch_mixing = torch.rand(1).item() < mixing_prob
         
         # Set mixing mode before forward pass
@@ -341,7 +341,7 @@ def main():
     batch_repetitions = args.batch_repetitions
     print(f"Using batch repetition: b = {batch_repetitions}")
         
-    if args.approach in ['cut_mixmo_cutmix', 'linear_mixmo_cutmix']:
+    if args.approach in ['cut_mixmo_cutmix', 'linear_mixmo_cutmix','cut_mixmo_augmix','linear_mixmo_augmix']:
         # For CutMix approaches, we need to load the dataset first without repetitions
         # and then apply CutMix and repetitions in one step
         if args.dataset == 'cifar10':
@@ -355,15 +355,23 @@ def main():
                 batch_size=args.batch_size, 
                 batch_repetitions=1  # No repetitions yet
             )
-            
-        # Now apply CutMix and repetitions together
-        train_loader = data_handler.get_cutmix_loader(
-            dataset=train_loader.dataset,  # Use the dataset, not the loader
-            batch_size=args.batch_size * batch_repetitions,
-            alpha=args.alpha,
-            batch_repetitions=batch_repetitions,  # Apply repetitions here
-            num_classes=num_classes
-        )
+        if args.approach in ['cut_mixmo_cutmix','linear_mixmo,cutmix']:   
+            # Now apply CutMix and repetitions together
+            train_loader = data_handler.get_cutmix_loader(
+                dataset=train_loader.dataset,  # Use the dataset, not the loader
+                batch_size=args.batch_size * batch_repetitions,
+                alpha=args.alpha,
+                batch_repetitions=batch_repetitions,  # Apply repetitions here
+                num_classes=num_classes
+            )
+        else:
+            # Augmix loader uses for Table 4
+            train_loader = data_handler.get_augmix_loader(
+                dataset=train_loader.dataset,  # Use the dataset, not the loader
+                batch_size=args.batch_size * batch_repetitions,
+                alpha=args.alpha,
+                batch_repetitions=batch_repetitions,  # Apply repetitions here
+            )
     else:
         # For non-CutMix approaches, use the regular loading with repetitions
         if args.dataset == 'cifar10':
@@ -484,7 +492,7 @@ def main():
     optimal_temp = optimize_temperature(model, calib_loader, device, args)
     print(f"Optimal temperature: {optimal_temp:.4f}")
     
-    # Final evaluation with temperature scaling on evaluation set
+    # Final evaluation with temperature scaling on evaluation setl
     test_acc, test_top5_acc, test_acc1, test_acc2, nllc = evaluate(
        model, eval_loader, device, args,
        optimal_temp=optimal_temp
