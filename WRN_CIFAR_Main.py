@@ -21,8 +21,8 @@ def parse_args():
     parser.add_argument('--batch_repetitions', type=int, default=2, help='Batch repetition factor (b parameter)')
     parser.add_argument('--epochs', type=int, default=None, help='If None, will use approach-specific default')
     parser.add_argument('--alpha', type=float, default=1.0, help='Alpha parameter for Beta distribution')
-    parser.add_argument('--data_root', type=str, default='/home/ahmedyra/projects/def-hinat/ahmedyra/MixMo_Replication-main/data')
-    parser.add_argument('--save_dir', type=str, default='/home/ahmedyra/projects/def-hinat/ahmedyra/MixMo_Replication-main/WRN_CIFAR_Results')
+    parser.add_argument('--data_root', type=str, default='/Users/ahmed/Desktop/MixMo_Replication/data')
+    parser.add_argument('--save_dir', type=str, default='/Users/ahmed/MixMo_Replication-main/WRN_CIFAR_Results')
     parser.add_argument('--run_number', type=int, default=1, help='Run 1, 2, or 3 for averaging')
     parser.add_argument('--seed', type=int, default=42)
     return parser.parse_args()
@@ -324,7 +324,7 @@ def main():
     os.makedirs(args.save_dir, exist_ok=True)
     
     # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps")
     print(f"Using device: {device}")
     
     # Get dataset specific parameters
@@ -355,7 +355,7 @@ def main():
                 batch_size=args.batch_size, 
                 batch_repetitions=1  # No repetitions yet
             )
-        if args.approach in ['cut_mixmo_cutmix','linear_mixmo,cutmix']:   
+        if args.approach in ['cut_mixmo_cutmix','linear_mixmo_cutmix']:   
             # Now apply CutMix and repetitions together
             train_loader = data_handler.get_cutmix_loader(
                 dataset=train_loader.dataset,  # Use the dataset, not the loader
