@@ -1,1 +1,3 @@
+Results Include analysis of CutMix with Linear/Cut-MixMo on CIFAR-100, measuring diversity (DRE) and accuracy as a function of patch mixing probability p. w = 10, b = 2
 
+https://drive.google.com/drive/folders/10iAURG2WuznDvJTD22YYqSCGRPUVxvka?usp=share_link
