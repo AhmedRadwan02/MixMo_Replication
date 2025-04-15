@@ -1,1 +1,3 @@
+Results Include CutMix with Cut-MixMo evaluation on CIFAR-100, studying the effect of the weighting function parameter r on diversity (DRE) and accuracy. w = 10, b = 2, p = 0.5
 
+https://drive.google.com/drive/folders/1xirLPVv5hGO9FJC1N__lr9vZulJ4Uqm1?usp=sharing
