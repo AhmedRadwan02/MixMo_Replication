@@ -1,1 +1,3 @@
+Results Include comparison of CutMix with Cut-MixMo on CIFAR-100, evaluating ensemble effectiveness as a function of model width (w = 2,3,5,7,10,14) and ensemble size (N = 1–4). b = 4
 
+https://drive.google.com/drive/folders/16-lAEkbfkXxFKK-YV_mV6MYB7K7YGbZM?usp=sharing
