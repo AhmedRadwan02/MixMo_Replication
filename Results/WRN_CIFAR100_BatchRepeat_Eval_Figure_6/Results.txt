@@ -1,1 +1,3 @@
+Results Include NLLc evaluation of CutMix with Linear/Cut-MixMo and Deep Ensembles on CIFAR-100, showing improvements with longer training. w = 10, b = 1,2,4
 
+https://drive.google.com/drive/folders/1j8C3EhTJ8ttlDtjXXVDMqv0f4OXShQ7W?usp=sharing
