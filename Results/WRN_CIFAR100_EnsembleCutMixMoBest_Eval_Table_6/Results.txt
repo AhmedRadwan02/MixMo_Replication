@@ -1,1 +1,3 @@
+Results Include single-run evaluation of CutMix with Cut-MixMo on CIFAR-100 using WRN-28-10, with ensemble sizes N = 1, 2, 3. Metrics reported are Top1, Top5, and NLLc. w = 10, b = 4(multiple runs were not considered due to the time constraints) 
 
+https://drive.google.com/drive/folders/1b2hX6OaSXI0pugE8MfUHA3etJS88tQl_?usp=share_link
